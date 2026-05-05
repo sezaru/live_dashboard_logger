@@ -206,10 +206,10 @@ defmodule LiveDashboardLogger do
             <% end %>
           </div>
           <%= if @source == :cloudwatch do %>
-            <form phx-submit="load_range" class="d-flex gap-2 mb-2 align-items-center">
-              <input type="datetime-local" name="from" class="form-control form-control-sm" style="max-width: 220px;" required />
+            <form phx-submit="load_range" phx-change="update_range" class="d-flex gap-2 mb-2 align-items-center">
+              <input type="datetime-local" name="from" value={@cw_range_from} class="form-control form-control-sm" style="max-width: 220px;" required />
               <span class="text-muted">to</span>
-              <input type="datetime-local" name="to" class="form-control form-control-sm" style="max-width: 220px;" required />
+              <input type="datetime-local" name="to" value={@cw_range_to} class="form-control form-control-sm" style="max-width: 220px;" required />
               <button type="submit" class="btn btn-sm btn-outline-secondary">Load</button>
             </form>
           <% end %>
@@ -284,7 +284,9 @@ defmodule LiveDashboardLogger do
         cloudwatch_configured: CloudWatch.configured?(),
         cw_loading: false,
         cw_timer_ref: nil,
-        cw_last_timestamp: nil
+        cw_last_timestamp: nil,
+        cw_range_from: nil,
+        cw_range_to: nil
       )
       |> stream(:logs, [])
 
@@ -321,6 +323,10 @@ defmodule LiveDashboardLogger do
       |> assign(source: :backend, cw_loading: false, cw_timer_ref: nil, cw_last_timestamp: nil)
 
     {:noreply, socket}
+  end
+
+  def handle_event("update_range", %{"from" => from, "to" => to}, socket) do
+    {:noreply, assign(socket, cw_range_from: from, cw_range_to: to)}
   end
 
   def handle_event("load_range", %{"from" => from_str, "to" => to_str}, socket) do
