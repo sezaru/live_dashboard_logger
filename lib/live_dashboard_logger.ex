@@ -95,9 +95,9 @@ defmodule LiveDashboardLogger.Hooks do
             });
             this._observer.observe(messages, { childList: true });
 
-            const filter = this.el.querySelector('.logger-filter-input');
-            const levelFilter = this.el.querySelector('.logger-level-filter');
             const applyFilters = () => {
+              const filter = this.el.querySelector('.logger-filter-input');
+              const levelFilter = this.el.querySelector('.logger-level-filter');
               const text = filter ? filter.value.toLowerCase() : '';
               const level = levelFilter ? levelFilter.value : '';
               for (const pre of messages.querySelectorAll('pre')) {
@@ -106,8 +106,12 @@ defmodule LiveDashboardLogger.Hooks do
                 pre.style.display = (matchText && matchLevel) ? '' : 'none';
               }
             };
-            if (filter) filter.addEventListener('input', applyFilters);
-            if (levelFilter) levelFilter.addEventListener('change', applyFilters);
+            this.el.addEventListener('input', (e) => {
+              if (e.target.classList.contains('logger-filter-input')) applyFilters();
+            });
+            this.el.addEventListener('change', (e) => {
+              if (e.target.classList.contains('logger-level-filter')) applyFilters();
+            });
             this._applyFilters = applyFilters;
           },
           destroyed() {
