@@ -157,10 +157,19 @@ defmodule LiveDashboardLogger do
     ]
   ```
 
+  ### CloudWatch support
+
+  To enable the CloudWatch tab, configure the log group in your app config:
+
+  ```elixir
+  config :live_dashboard_logger, cloudwatch_log_group: "/my-app/production"
+  ```
+
   Then the "Live Logs" menu item should appear in your dashboard.
   """
   use Phoenix.LiveDashboard.PageBuilder
 
+  alias LiveDashboardLogger.CloudWatch
   alias LiveDashboardLogger.Log
   alias LiveDashboardLogger.PubSub
 
@@ -173,6 +182,29 @@ defmodule LiveDashboardLogger do
 
       <div class="card mb-4" id="logger-messages-card" phx-hook="ScrollHook">
         <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="btn-group" role="group">
+              <button
+                phx-click="switch_source"
+                phx-value-source="backend"
+                class={"btn btn-sm #{if @source == :backend, do: "btn-primary", else: "btn-outline-secondary"}"}
+              >
+                Backend
+              </button>
+              <button
+                phx-click="switch_source"
+                phx-value-source="cloudwatch"
+                class={"btn btn-sm #{if @source == :cloudwatch, do: "btn-primary", else: "btn-outline-secondary"}"}
+                disabled={not @cloudwatch_configured}
+                title={if not @cloudwatch_configured, do: "Set :live_dashboard_logger, :cloudwatch_log_group to enable"}
+              >
+                CloudWatch
+              </button>
+            </div>
+            <%= if @source == :cloudwatch && @cw_loading do %>
+              <small class="text-muted">Loading history...</small>
+            <% end %>
+          </div>
           <div class="d-flex gap-2 mb-2 align-items-center">
             <input
               type="text"
@@ -192,21 +224,22 @@ defmodule LiveDashboardLogger do
               <option value="emergency">emergency</option>
             </select>
           </div>
-          <div id="logger-messages" style="height: calc(100vh - 450px); overflow-y: auto; background: #1e1e2e; padding: 0.5rem; border-radius: 4px;" class={if(@text_wrap_enabled, do: "logger-wrap")} phx-update="stream">
+          <div
+            id="logger-messages"
+            style="height: calc(100vh - 500px); overflow-y: auto; background: #1e1e2e; padding: 0.5rem; border-radius: 4px;"
+            class={if(@text_wrap_enabled, do: "logger-wrap")}
+            phx-update="stream"
+          >
             <%= for {id, %Log{level: level} = log} <- @streams.logs do %>
               <pre id={id} class={"log-level-#{level}"}>{format_log(log)}</pre>
             <% end %>
           </div>
-          <div class="text-right mt-3">
-            <label>
+          <div class="d-flex gap-3 justify-content-end mt-2">
+            <label class="d-flex align-items-center gap-1 mb-0">
               Wrap
-              <input
-                phx-click="toggle_text_wrap"
-                checked={@text_wrap_enabled}
-                type="checkbox"
-              />
+              <input phx-click="toggle_text_wrap" checked={@text_wrap_enabled} type="checkbox" />
             </label>
-            <label>
+            <label class="d-flex align-items-center gap-1 mb-0">
               Autoscroll
               <input
                 phx-click="toggle_autoscroll"
@@ -235,14 +268,54 @@ defmodule LiveDashboardLogger do
 
     socket =
       socket
-      |> assign(autoscroll_enabled: true, text_wrap_enabled: true, topic: topic)
+      |> assign(
+        autoscroll_enabled: true,
+        text_wrap_enabled: true,
+        topic: topic,
+        source: :backend,
+        cloudwatch_configured: CloudWatch.configured?(),
+        cw_loading: false,
+        cw_timer_ref: nil,
+        cw_last_timestamp: nil
+      )
       |> stream(:logs, [])
 
     {:ok, socket}
   end
 
-  def handle_info({:log, %Log{} = log}, socket) do
-    {:noreply, stream_insert(socket, :logs, log)}
+  def handle_event("switch_source", %{"source" => "cloudwatch"}, socket) do
+    pid = self()
+    start_time = System.os_time(:millisecond)
+
+    Task.start(fn ->
+      logs = CloudWatch.fetch_history()
+      send(pid, {:cloudwatch_history, logs})
+    end)
+
+    timer_ref = Process.send_after(self(), :poll_cloudwatch, CloudWatch.poll_interval())
+
+    socket =
+      socket
+      |> stream(:logs, [], reset: true)
+      |> assign(
+        source: :cloudwatch,
+        cw_loading: true,
+        cw_timer_ref: timer_ref,
+        cw_last_timestamp: start_time
+      )
+
+    {:noreply, socket}
+  end
+
+  def handle_event("switch_source", %{"source" => "backend"}, socket) do
+    if socket.assigns.cw_timer_ref, do: Process.cancel_timer(socket.assigns.cw_timer_ref)
+
+    socket =
+      socket
+      |> stream(:logs, [], reset: true)
+      |> assign(source: :backend, cw_loading: false, cw_timer_ref: nil, cw_last_timestamp: nil)
+
+    {:noreply, socket}
   end
 
   def handle_event("toggle_autoscroll", _params, socket) do
@@ -253,9 +326,44 @@ defmodule LiveDashboardLogger do
     {:noreply, assign(socket, :text_wrap_enabled, !socket.assigns.text_wrap_enabled)}
   end
 
+  def handle_info({:cloudwatch_history, logs}, socket) do
+    socket =
+      logs
+      |> Enum.reduce(socket, fn log, acc -> stream_insert(acc, :logs, log) end)
+      |> assign(cw_loading: false)
+
+    {:noreply, socket}
+  end
+
+  def handle_info(:poll_cloudwatch, %{assigns: %{source: :cloudwatch}} = socket) do
+    last_ts = socket.assigns.cw_last_timestamp
+    now = System.os_time(:millisecond)
+
+    new_logs = CloudWatch.fetch_since(last_ts)
+
+    timer_ref = Process.send_after(self(), :poll_cloudwatch, CloudWatch.poll_interval())
+
+    socket =
+      new_logs
+      |> Enum.reduce(socket, fn log, acc -> stream_insert(acc, :logs, log) end)
+      |> assign(cw_last_timestamp: now, cw_timer_ref: timer_ref)
+
+    {:noreply, socket}
+  end
+
+  def handle_info(:poll_cloudwatch, socket), do: {:noreply, socket}
+
+  def handle_info({:log, %Log{} = log}, %{assigns: %{source: :backend}} = socket) do
+    {:noreply, stream_insert(socket, :logs, log)}
+  end
+
+  def handle_info({:log, %Log{}}, socket), do: {:noreply, socket}
+
   def menu_link(_, _) do
     {:ok, "Live Logs"}
   end
+
+  defp format_log(%Log{node: :cloudwatch, message: message}), do: message
 
   defp format_log(%Log{} = log) do
     Logger.Formatter.format(@log_format, log.level, log.message, log.timestamp, log.metadata)
