@@ -119,7 +119,7 @@ defmodule LiveDashboardLogger.Hooks do
     <style>
       .logger-wrap pre { white-space: pre-wrap !important; }
 
-      #logger-messages pre { margin: 0; font-size: 0.82rem; line-height: 1.4; }
+      #logger-messages pre { margin: 0; font-size: 0.82rem; line-height: 1.4; background: transparent !important; }
 
       .log-level-debug   { color: #8fbcbb; }
       .log-level-info    { color: #a3be8c; }
