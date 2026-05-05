@@ -211,6 +211,9 @@ defmodule LiveDashboardLogger do
               <span class="text-muted">to</span>
               <input type="datetime-local" name="to" value={@cw_range_to} class="form-control form-control-sm" style="max-width: 220px;" required />
               <button type="submit" class="btn btn-sm btn-outline-secondary">Load</button>
+              <%= if @cw_range_active do %>
+                <button type="button" phx-click="reset_range" class="btn btn-sm btn-warning">Reset to realtime</button>
+              <% end %>
             </form>
           <% end %>
           <div class="d-flex gap-2 mb-2 align-items-center">
@@ -286,7 +289,8 @@ defmodule LiveDashboardLogger do
         cw_timer_ref: nil,
         cw_last_timestamp: nil,
         cw_range_from: nil,
-        cw_range_to: nil
+        cw_range_to: nil,
+        cw_range_active: false
       )
       |> stream(:logs, [])
 
@@ -330,6 +334,8 @@ defmodule LiveDashboardLogger do
   end
 
   def handle_event("load_range", %{"from" => from_str, "to" => to_str}, socket) do
+    if socket.assigns.cw_timer_ref, do: Process.cancel_timer(socket.assigns.cw_timer_ref)
+
     from_ms = datetime_to_ms(from_str)
     to_ms = datetime_to_ms(to_str)
     pid = self()
@@ -339,7 +345,30 @@ defmodule LiveDashboardLogger do
     socket =
       socket
       |> stream(:logs, [], reset: true)
-      |> assign(cw_loading: true)
+      |> assign(cw_loading: true, cw_range_active: true, cw_timer_ref: nil)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("reset_range", _params, socket) do
+    now = System.os_time(:millisecond)
+    pid = self()
+
+    Task.start(fn -> send(pid, {:cloudwatch_history, CloudWatch.fetch_history()}) end)
+
+    timer_ref = Process.send_after(self(), :poll_cloudwatch, CloudWatch.poll_interval())
+
+    socket =
+      socket
+      |> stream(:logs, [], reset: true)
+      |> assign(
+        cw_loading: true,
+        cw_range_active: false,
+        cw_range_from: nil,
+        cw_range_to: nil,
+        cw_timer_ref: timer_ref,
+        cw_last_timestamp: now
+      )
 
     {:noreply, socket}
   end
@@ -371,6 +400,10 @@ defmodule LiveDashboardLogger do
   end
 
   def handle_info({:cloudwatch_poll_result, _logs, _timestamp}, socket), do: {:noreply, socket}
+
+  def handle_info(:poll_cloudwatch, %{assigns: %{source: :cloudwatch, cw_range_active: true}} = socket) do
+    {:noreply, socket}
+  end
 
   def handle_info(:poll_cloudwatch, %{assigns: %{source: :cloudwatch}} = socket) do
     last_ts = socket.assigns.cw_last_timestamp
