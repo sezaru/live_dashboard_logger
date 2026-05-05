@@ -34,7 +34,14 @@ defmodule LiveDashboardLogger.CloudWatch do
         |> Enum.sort_by(& &1["timestamp"])
         |> Enum.map(&Log.from_cloudwatch_event/1)
 
-      {:error, _} ->
+      {:ok, response} ->
+        require Logger
+        Logger.warning("[LiveDashboardLogger] Unexpected CloudWatch response: #{inspect(response)}")
+        []
+
+      {:error, reason} ->
+        require Logger
+        Logger.error("[LiveDashboardLogger] CloudWatch fetch failed: #{inspect(reason)}")
         []
     end
   end
