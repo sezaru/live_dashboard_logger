@@ -22,6 +22,10 @@ defmodule LiveDashboardLogger.CloudWatch do
     fetch_events(start_time: start_time_ms)
   end
 
+  def fetch_range(from_ms, to_ms) do
+    fetch_events(start_time: from_ms, end_time: to_ms)
+  end
+
   defp fetch_events(opts) do
     result =
       log_group()

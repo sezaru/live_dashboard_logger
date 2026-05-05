@@ -205,6 +205,14 @@ defmodule LiveDashboardLogger do
               <small class="text-muted">Loading history...</small>
             <% end %>
           </div>
+          <%= if @source == :cloudwatch do %>
+            <form phx-submit="load_range" class="d-flex gap-2 mb-2 align-items-center">
+              <input type="datetime-local" name="from" class="form-control form-control-sm" style="max-width: 220px;" required />
+              <span class="text-muted">to</span>
+              <input type="datetime-local" name="to" class="form-control form-control-sm" style="max-width: 220px;" required />
+              <button type="submit" class="btn btn-sm btn-outline-secondary">Load</button>
+            </form>
+          <% end %>
           <div class="d-flex gap-2 mb-2 align-items-center">
             <input
               type="text"
@@ -315,6 +323,21 @@ defmodule LiveDashboardLogger do
     {:noreply, socket}
   end
 
+  def handle_event("load_range", %{"from" => from_str, "to" => to_str}, socket) do
+    from_ms = datetime_to_ms(from_str)
+    to_ms = datetime_to_ms(to_str)
+    pid = self()
+
+    Task.start(fn -> send(pid, {:cloudwatch_history, CloudWatch.fetch_range(from_ms, to_ms)}) end)
+
+    socket =
+      socket
+      |> stream(:logs, [], reset: true)
+      |> assign(cw_loading: true)
+
+    {:noreply, socket}
+  end
+
   def handle_event("toggle_autoscroll", _params, socket) do
     {:noreply, assign(socket, :autoscroll_enabled, !socket.assigns.autoscroll_enabled)}
   end
@@ -365,6 +388,13 @@ defmodule LiveDashboardLogger do
 
   def menu_link(_, _) do
     {:ok, "Live Logs"}
+  end
+
+  defp datetime_to_ms(str) do
+    str
+    |> NaiveDateTime.from_iso8601!()
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.to_unix(:millisecond)
   end
 
   defp format_log(%Log{node: :cloudwatch, message: message}), do: message
