@@ -11,13 +11,91 @@ defmodule LiveDashboardLogger.Hooks do
   defp after_opening_head_tag(assigns) do
     ~H"""
     <script nonce={@csp_nonces[:script]}>
+      const ANSI_COLORS = {
+        30: '#4e4e4e', 31: '#ff5f57', 32: '#57bc6a', 33: '#f3be4c',
+        34: '#648fff', 35: '#c57bdb', 36: '#5ecfcf', 37: '#d0d0d0',
+        90: '#767676', 91: '#ff8c82', 92: '#7dd87d', 93: '#ffd580',
+        94: '#82a9ff', 95: '#d98cff', 96: '#73e2e2', 97: '#ffffff'
+      };
+      const ANSI_BG = {
+        40: '#4e4e4e', 41: '#ff5f57', 42: '#57bc6a', 43: '#f3be4c',
+        44: '#648fff', 45: '#c57bdb', 46: '#5ecfcf', 47: '#d0d0d0',
+        100: '#767676', 101: '#ff8c82', 102: '#7dd87d', 103: '#ffd580',
+        104: '#82a9ff', 105: '#d98cff', 106: '#73e2e2', 107: '#ffffff'
+      };
+
+      function ansiToHtml(text) {
+        let result = '';
+        let openSpans = 0;
+        const re = /\x1b\[([0-9;]*)m/g;
+        let last = 0, match;
+        let bold = false, fg = null, bg = null;
+
+        const flush = (raw) => { result += raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+        const applyStyle = () => {
+          const parts = [];
+          if (bold) parts.push('font-weight:bold');
+          if (fg) parts.push(`color:${fg}`);
+          if (bg) parts.push(`background:${bg}`);
+          if (parts.length) { result += `<span style="${parts.join(';')}">`;  openSpans++; }
+        };
+
+        while ((match = re.exec(text)) !== null) {
+          flush(text.slice(last, match.index));
+          last = match.index + match[0].length;
+          const codes = match[1] === '' ? [0] : match[1].split(';').map(Number);
+          let i = 0;
+          while (i < codes.length) {
+            const c = codes[i];
+            if (c === 0) {
+              for (let s = 0; s < openSpans; s++) result += '</span>';
+              openSpans = 0; bold = false; fg = null; bg = null;
+            } else if (c === 1) {
+              bold = true;
+            } else if (c >= 30 && c <= 37) {
+              fg = ANSI_COLORS[c];
+            } else if (c >= 40 && c <= 47) {
+              bg = ANSI_BG[c];
+            } else if (c >= 90 && c <= 97) {
+              fg = ANSI_COLORS[c];
+            } else if (c >= 100 && c <= 107) {
+              bg = ANSI_BG[c];
+            } else if ((c === 38 || c === 48) && codes[i+1] === 5 && codes[i+2] !== undefined) {
+              i += 2;
+            }
+            i++;
+          }
+          applyStyle();
+        }
+        flush(text.slice(last));
+        for (let s = 0; s < openSpans; s++) result += '</span>';
+        return result;
+      }
+
+      function processLogEntry(el) {
+        if (el.dataset.ansiProcessed) return;
+        el.dataset.ansiProcessed = '1';
+        el.innerHTML = ansiToHtml(el.textContent);
+      }
+
       window.LiveDashboard.registerCustomHooks({
         ScrollHook: {
-          updated() {
-            if (this.el.querySelector('.logger-autoscroll-checkbox').checked) {
-              const messagesElement = this.el.querySelector('#logger-messages')
-              messagesElement.scrollTop = messagesElement.scrollHeight
-            }
+          mounted() {
+            const messages = this.el.querySelector('#logger-messages');
+            this._observer = new MutationObserver((mutations) => {
+              for (const m of mutations) {
+                for (const node of m.addedNodes) {
+                  if (node.nodeType === 1) processLogEntry(node);
+                }
+              }
+              if (this.el.querySelector('.logger-autoscroll-checkbox').checked) {
+                messages.scrollTop = messages.scrollHeight;
+              }
+            });
+            this._observer.observe(messages, { childList: true });
+          },
+          destroyed() {
+            if (this._observer) this._observer.disconnect();
           }
         }
       })
