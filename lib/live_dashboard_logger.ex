@@ -72,10 +72,28 @@ defmodule LiveDashboardLogger.Hooks do
         return result;
       }
 
+      const LOG_LEVEL_COLORS = {
+        'debug': '#5ecfcf',
+        'info': '#cdd6f4',
+        'warning': '#f9e2af',
+        'warn': '#f9e2af',
+        'error': '#f38ba8',
+        'notice': '#89dceb',
+        'critical': '#ff5f57',
+        'alert': '#ff5f57',
+        'emergency': '#ff5f57'
+      };
+
       function processLogEntry(el) {
         if (el.dataset.ansiProcessed) return;
         el.dataset.ansiProcessed = '1';
         el.innerHTML = ansiToHtml(el.textContent);
+        for (const [level, color] of Object.entries(LOG_LEVEL_COLORS)) {
+          if (el.classList.contains('log-level-' + level)) {
+            el.style.color = color;
+            break;
+          }
+        }
       }
 
       window.LiveDashboard.registerCustomHooks({
@@ -94,6 +112,7 @@ defmodule LiveDashboardLogger.Hooks do
               if (this._applyFilters) this._applyFilters();
             });
             this._observer.observe(messages, { childList: true });
+            for (const pre of messages.querySelectorAll('pre')) processLogEntry(pre);
 
             const applyFilters = () => {
               const filter = this.el.querySelector('.logger-filter-input');
@@ -120,21 +139,31 @@ defmodule LiveDashboardLogger.Hooks do
         }
       })
     </script>
-    <style>
+    {raw_style_tag(@csp_nonces[:style])}
+    """
+  end
+
+  defp raw_style_tag(nonce) do
+    nonce_attr = if nonce, do: ~s( nonce="#{nonce}"), else: ""
+
+    Phoenix.HTML.raw("""
+    <style#{nonce_attr}>
       .logger-wrap pre { white-space: pre-wrap !important; }
 
       #logger-messages pre { margin: 0; font-size: 0.82rem; line-height: 1.4; background: transparent !important; }
+      .logs-card #logger-messages pre { color: #cdd6f4 !important; }
+      .logs-card #logger-messages pre span { color: inherit; }
 
-      .log-level-debug   { color: #8fbcbb; }
-      .log-level-info    { color: #a3be8c; }
-      .log-level-warning { color: #ebcb8b; }
-      .log-level-error   { color: #bf616a; }
-      .log-level-notice  { color: #88c0d0; }
-      .log-level-critical, .log-level-alert, .log-level-emergency {
-        color: #ff5f57; font-weight: bold;
-      }
+      .logs-card #logger-messages .log-level-debug   { color: #5ecfcf !important; }
+      .logs-card #logger-messages .log-level-info    { color: #cdd6f4 !important; }
+      .logs-card #logger-messages .log-level-warning { color: #f9e2af !important; }
+      .logs-card #logger-messages .log-level-error   { color: #f38ba8 !important; }
+      .logs-card #logger-messages .log-level-notice  { color: #89dceb !important; }
+      .logs-card #logger-messages .log-level-critical,
+      .logs-card #logger-messages .log-level-alert,
+      .logs-card #logger-messages .log-level-emergency { color: #ff5f57 !important; font-weight: bold; }
     </style>
-    """
+    """)
   end
 end
 
