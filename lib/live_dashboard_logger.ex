@@ -333,6 +333,13 @@ defmodule LiveDashboardLogger do
     {:noreply, assign(socket, cw_loading: false)}
   end
 
+  def handle_async(:cloudwatch_poll, {:ok, logs}, socket) do
+    socket = Enum.reduce(logs, socket, fn log, acc -> stream_insert(acc, :logs, log) end)
+    {:noreply, socket}
+  end
+
+  def handle_async(:cloudwatch_poll, {:exit, _reason}, socket), do: {:noreply, socket}
+
   def handle_info(:poll_cloudwatch, %{assigns: %{source: :cloudwatch}} = socket) do
     last_ts = socket.assigns.cw_last_timestamp
     now = System.os_time(:millisecond)
@@ -347,13 +354,6 @@ defmodule LiveDashboardLogger do
   end
 
   def handle_info(:poll_cloudwatch, socket), do: {:noreply, socket}
-
-  def handle_async(:cloudwatch_poll, {:ok, logs}, socket) do
-    socket = Enum.reduce(logs, socket, fn log, acc -> stream_insert(acc, :logs, log) end)
-    {:noreply, socket}
-  end
-
-  def handle_async(:cloudwatch_poll, {:exit, _reason}, socket), do: {:noreply, socket}
 
   def handle_info({:log, %Log{} = log}, %{assigns: %{source: :backend}} = socket) do
     {:noreply, stream_insert(socket, :logs, log)}
