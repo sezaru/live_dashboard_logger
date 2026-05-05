@@ -30,7 +30,8 @@ defmodule LiveDashboardLogger.MixProject do
       {:phoenix_live_view, "~> 1.0"},
       {:phoenix_pubsub, "~> 2.1"},
       {:phoenix_live_dashboard, "~> 0.8.6"},
-      {:ex_aws, ">= 2.0.0", optional: true},
+      {:ex_aws, ">= 2.0.0"},
+      {:ex_aws_cloudwatch_logs, ">= 1.0.0"},
       {:ex_doc, "~> 0.37", only: :dev, runtime: false}
     ]
   end
