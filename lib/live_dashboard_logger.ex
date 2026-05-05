@@ -91,8 +91,24 @@ defmodule LiveDashboardLogger.Hooks do
               if (this.el.querySelector('.logger-autoscroll-checkbox').checked) {
                 messages.scrollTop = messages.scrollHeight;
               }
+              if (this._applyFilters) this._applyFilters();
             });
             this._observer.observe(messages, { childList: true });
+
+            const filter = this.el.querySelector('.logger-filter-input');
+            const levelFilter = this.el.querySelector('.logger-level-filter');
+            const applyFilters = () => {
+              const text = filter ? filter.value.toLowerCase() : '';
+              const level = levelFilter ? levelFilter.value : '';
+              for (const pre of messages.querySelectorAll('pre')) {
+                const matchText = !text || pre.textContent.toLowerCase().includes(text);
+                const matchLevel = !level || pre.classList.contains(`log-level-${level}`);
+                pre.style.display = (matchText && matchLevel) ? '' : 'none';
+              }
+            };
+            if (filter) filter.addEventListener('input', applyFilters);
+            if (levelFilter) levelFilter.addEventListener('change', applyFilters);
+            this._applyFilters = applyFilters;
           },
           destroyed() {
             if (this._observer) this._observer.disconnect();
@@ -157,7 +173,26 @@ defmodule LiveDashboardLogger do
 
       <div class="card mb-4" id="logger-messages-card" phx-hook="ScrollHook">
         <div class="card-body">
-          <div id="logger-messages" style="height: calc(100vh - 400px); background: #1e1e2e; padding: 0.5rem; border-radius: 4px;" class={if(@text_wrap_enabled, do: "logger-wrap")} phx-update="stream">
+          <div class="d-flex gap-2 mb-2 align-items-center">
+            <input
+              type="text"
+              class="form-control form-control-sm logger-filter-input"
+              placeholder="Filter logs..."
+              style="max-width: 320px;"
+            />
+            <select class="form-select form-select-sm logger-level-filter" style="max-width: 140px;">
+              <option value="">All levels</option>
+              <option value="debug">debug</option>
+              <option value="info">info</option>
+              <option value="notice">notice</option>
+              <option value="warning">warning</option>
+              <option value="error">error</option>
+              <option value="critical">critical</option>
+              <option value="alert">alert</option>
+              <option value="emergency">emergency</option>
+            </select>
+          </div>
+          <div id="logger-messages" style="height: calc(100vh - 450px); overflow-y: auto; background: #1e1e2e; padding: 0.5rem; border-radius: 4px;" class={if(@text_wrap_enabled, do: "logger-wrap")} phx-update="stream">
             <%= for {id, %Log{level: level} = log} <- @streams.logs do %>
               <pre id={id} class={"log-level-#{level}"}>{format_log(log)}</pre>
             <% end %>
