@@ -285,6 +285,10 @@ defmodule LiveDashboardLogger do
 
   def handle_event("switch_source", %{"source" => "cloudwatch"}, socket) do
     start_time = System.os_time(:millisecond)
+    pid = self()
+
+    Task.start(fn -> send(pid, {:cloudwatch_history, CloudWatch.fetch_history()}) end)
+
     timer_ref = Process.send_after(self(), :poll_cloudwatch, CloudWatch.poll_interval())
 
     socket =
@@ -296,7 +300,6 @@ defmodule LiveDashboardLogger do
         cw_timer_ref: timer_ref,
         cw_last_timestamp: start_time
       )
-      |> start_async(:cloudwatch_history, fn -> CloudWatch.fetch_history() end)
 
     {:noreply, socket}
   end
@@ -320,7 +323,7 @@ defmodule LiveDashboardLogger do
     {:noreply, assign(socket, :text_wrap_enabled, !socket.assigns.text_wrap_enabled)}
   end
 
-  def handle_async(:cloudwatch_history, {:ok, logs}, socket) do
+  def handle_info({:cloudwatch_history, logs}, socket) do
     socket =
       logs
       |> Enum.reduce(socket, fn log, acc -> stream_insert(acc, :logs, log) end)
@@ -329,28 +332,27 @@ defmodule LiveDashboardLogger do
     {:noreply, socket}
   end
 
-  def handle_async(:cloudwatch_history, {:exit, _reason}, socket) do
-    {:noreply, assign(socket, cw_loading: false)}
-  end
+  def handle_info({:cloudwatch_poll_result, logs, timestamp}, %{assigns: %{source: :cloudwatch}} = socket) do
+    socket =
+      logs
+      |> Enum.reduce(socket, fn log, acc -> stream_insert(acc, :logs, log) end)
+      |> assign(cw_last_timestamp: timestamp)
 
-  def handle_async(:cloudwatch_poll, {:ok, logs}, socket) do
-    socket = Enum.reduce(logs, socket, fn log, acc -> stream_insert(acc, :logs, log) end)
     {:noreply, socket}
   end
 
-  def handle_async(:cloudwatch_poll, {:exit, _reason}, socket), do: {:noreply, socket}
+  def handle_info({:cloudwatch_poll_result, _logs, _timestamp}, socket), do: {:noreply, socket}
 
   def handle_info(:poll_cloudwatch, %{assigns: %{source: :cloudwatch}} = socket) do
     last_ts = socket.assigns.cw_last_timestamp
     now = System.os_time(:millisecond)
+    pid = self()
+
+    Task.start(fn -> send(pid, {:cloudwatch_poll_result, CloudWatch.fetch_since(last_ts), now}) end)
+
     timer_ref = Process.send_after(self(), :poll_cloudwatch, CloudWatch.poll_interval())
 
-    socket =
-      socket
-      |> assign(cw_timer_ref: timer_ref, cw_last_timestamp: now)
-      |> start_async(:cloudwatch_poll, fn -> CloudWatch.fetch_since(last_ts) end)
-
-    {:noreply, socket}
+    {:noreply, assign(socket, cw_timer_ref: timer_ref)}
   end
 
   def handle_info(:poll_cloudwatch, socket), do: {:noreply, socket}
