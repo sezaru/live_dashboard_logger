@@ -23,8 +23,17 @@ defmodule LiveDashboardLogger.Hooks do
       })
     </script>
     <style>
-      .logger-wrap pre {
-        white-space: pre-wrap !important;
+      .logger-wrap pre { white-space: pre-wrap !important; }
+
+      #logger-messages pre { margin: 0; font-size: 0.82rem; line-height: 1.4; }
+
+      .log-level-debug   { color: #8fbcbb; }
+      .log-level-info    { color: #a3be8c; }
+      .log-level-warning { color: #ebcb8b; }
+      .log-level-error   { color: #bf616a; }
+      .log-level-notice  { color: #88c0d0; }
+      .log-level-critical, .log-level-alert, .log-level-emergency {
+        color: #ff5f57; font-weight: bold;
       }
     </style>
     """
@@ -70,7 +79,7 @@ defmodule LiveDashboardLogger do
 
       <div class="card mb-4" id="logger-messages-card" phx-hook="ScrollHook">
         <div class="card-body">
-          <div id="logger-messages" style="height: calc(100vh - 400px);" class={if(@text_wrap_enabled, do: "logger-wrap")} phx-update="stream">
+          <div id="logger-messages" style="height: calc(100vh - 400px); background: #1e1e2e; padding: 0.5rem; border-radius: 4px;" class={if(@text_wrap_enabled, do: "logger-wrap")} phx-update="stream">
             <%= for {id, %Log{level: level} = log} <- @streams.logs do %>
               <pre id={id} class={"log-level-#{level}"}>{format_log(log)}</pre>
             <% end %>
