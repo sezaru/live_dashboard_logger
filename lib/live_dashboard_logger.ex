@@ -391,7 +391,9 @@ defmodule LiveDashboardLogger do
   end
 
   defp datetime_to_ms(str) do
-    str
+    normalized = if String.length(str) == 16, do: str <> ":00", else: str
+
+    normalized
     |> NaiveDateTime.from_iso8601!()
     |> DateTime.from_naive!("Etc/UTC")
     |> DateTime.to_unix(:millisecond)
